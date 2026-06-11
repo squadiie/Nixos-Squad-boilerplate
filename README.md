@@ -1,4 +1,5 @@
-# squad-nixos
+# SQ-Nixos Still WIP but it works pretty well
+## tested on a hetzner instance all mods loaded and the server ran flawlessly
 
 **Declarative, modded Squad dedicated server fleets on NixOS.**
 
