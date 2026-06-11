@@ -1,0 +1,225 @@
+# examples/squad-fleet.example.nix
+#
+# EXAMPLE fleet definition — copy to /etc/nixos/squad-fleet.nix and edit:
+#   1. every rconPassword           -> `openssl rand -hex 24` output
+#   2. sharedAdmins steamId         -> your SteamID64 (steamid.io)
+#   3. server names, MOTDs, broadcasts, discord.gg invites
+#   4. enable = true/false          -> which instances actually run
+#   5. discord.token + channel IDs  -> after creating your bot (see README)
+#
+#
+# Import this from your EXISTING /etc/nixos/configuration.nix:
+#   imports = [ ./hardware-configuration.nix ./squad-fleet.nix ];
+# Goes alongside squad-servers.nix and the mods/ directory.
+#
+# Mod profiles live in ./mods/*.nix; compose them per instance with `//`.
+# Combos below mirror what real servers run (per squadbrowser.app):
+#   server 1: Steel Division + ICM
+#   server 2: Steel Division + SuperMod
+#   server 3: Warzone + Chornivsk
+#
+# Each instance needs UNIQUE ports (the module asserts this). Pattern used:
+# step gamePort by 10, queryPort by 10, rconPort by 10, beaconPort by 10.
+
+{ config, pkgs, ... }:
+
+let
+  mods = import ./mods;
+
+  sd  = mods.steel-division;
+  sm  = mods.supermod;
+  icm = mods.icm;
+  wz  = mods.warzone;
+  ch  = mods.chornivsk;
+  ml  = mods.modloader;
+  dw  = mods.dynamic-weather;
+in
+{
+  imports = [ ./squad-servers.nix ./squadjs.nix ];
+
+  hardware.graphics.enable32Bit = true;
+
+  services.squad-servers = {
+    enable = true;
+    user  = "squadsrv";   # matches on-disk ownership of /var/lib/squad
+    group = "squadsrv";
+
+    # Admins shared by every server in the fleet
+    sharedAdmins = [
+      { steamId = "76561198000000000"; group = "SuperAdmin"; comment = "owner"; }
+    ];
+
+    instances = {
+
+      # ---- Server 1: Steel Division + ICM --------------------------------
+      sd-icm = {
+        serverName = "[EU] MILSIM #1 | Steel Division + ICM";
+        mods = sd.workshopIds // icm.workshopIds;
+        layerRotation = sd.layers ++ icm.layers ++ [
+          "Yehorivka_RAAS_v1"   # vanilla fallback so the server always boots
+        ];
+        gamePort = 7787;  queryPort = 27165;
+        rconPort = 21114; beaconPort = 15000;
+        rconPassword = "CHANGEME-openssl-rand-hex-24";
+        motd = "Steel Division + ICM. Comms discipline enforced.";
+      };
+
+      # ---- Server 2: Steel Division + SuperMod ---------------------------
+      sd-supermod = {
+        serverName = "[EU] MILSIM #2 | Steel Division + SuperMod";
+        mods = sd.workshopIds // sm.workshopIds;
+        layerRotation = sd.layers ++ sm.layers ++ [
+          "Gorodok_RAAS_v1"
+        ];
+        gamePort = 7797;  queryPort = 27175;
+        rconPort = 21124; beaconPort = 15010;
+        rconPassword = "CHANGEME-openssl-rand-hex-24";
+        motd = "Steel Division + SuperMod. 32 factions.";
+      };
+
+      # ---- Server 3: Warzone + Chornivsk ---------------------------------
+      warzone-maps = {
+        serverName = "[EU] Warzone + Chornivsk Custom Maps";
+        mods = wz.workshopIds // ch.workshopIds;
+        layerRotation = ch.layers ++ wz.layers;
+        gamePort = 7807;  queryPort = 27185;
+        rconPort = 21134; beaconPort = 15020;
+        rconPassword = "CHANGEME-openssl-rand-hex-24";
+        # per-instance admins (merged with sharedAdmins) can be added here:
+        # admins = [ { steamId = "7656119..."; group = "Admin"; comment = "name"; } ];
+      };
+
+      # ---- Server 4: Vanilla + ModLoader + Dynamic Weather -----------------
+      # Vanilla gameplay with Ultra Dynamic Sky & Weather injected on every
+      # layer. ModLoader is ~10 MB and weather is an overlay, so this server
+      # has a tiny client download compared to the others.
+      weather = {
+        enable = false;   # parked for month one — the event server has priority
+        serverName = "[EU] Vanilla+ | Dynamic Weather";
+        mods = ml.workshopIds // dw.workshopIds;
+        modLoaderMods = [ dw.modLoaderPath ];
+        layerRotation = [
+          # weather works on all layers — plain vanilla rotation:
+          "Yehorivka_RAAS_v1"
+          "Gorodok_RAAS_v1"
+          "Narva_RAAS_v1"
+          "Mutaha_RAAS_v1"
+        ];
+        gamePort = 7817;  queryPort = 27195;
+        rconPort = 21144; beaconPort = 15030;
+        rconPassword = "CHANGEME-openssl-rand-hex-24";
+        motd = "Vanilla Squad with dynamic weather. Watch the skies.";
+      };
+
+      # ---- Server 5: Night Ops — SD + SuperMod (GoingDark) + Weather -------
+      # "Going Dark" is SuperMod's built-in NVG night layer set, not a
+      # separate mod — so this is SD + SuperMod + ModLoader + Dynamic
+      # Weather, with the rotation pointed at GoingDark layers.
+      # NOTE: test weather-on-night-layers on this instance before going
+      # public — the weather system overrides sky/lighting, which may fight
+      # GoingDark's NVG-tuned darkness. If it does, drop modLoaderMods here
+      # or ask in the ModLoader Discord for a night-friendly preset path.
+      night-ops = {
+        serverName = "[EU] NIGHT OPS | SD + SuperMod GoingDark + Weather";
+        mods = sd.workshopIds // sm.workshopIds
+            // ml.workshopIds // dw.workshopIds;
+        modLoaderMods = [ dw.modLoaderPath ];
+        # Pure GoingDark rotation (SD has no night layers of its own);
+        # vanilla fallback keeps the server bootable no matter what:
+        layerRotation = sm.darkLayers ++ [ "Yehorivka_RAAS_v1" ];
+        gamePort = 7827;  queryPort = 27205;
+        rconPort = 21154; beaconPort = 15040;
+        rconPassword = "CHANGEME-openssl-rand-hex-24";
+        motd = "Night operations. NVGs on, lights off. Bring IR lasers.";
+      };
+
+      # ---- Server 6: THE EVENT SERVER — every mod at once ------------------
+      # Month-one flagship: SD + SuperMod + ICM + Warzone + Chornivsk +
+      # ModLoader + Dynamic Weather. Mixed rotation, map voting decides.
+      # WARNING: the combined first-join client download is enormous
+      # (60+ GB) — say so in your server name/Discord so players expect it.
+      event = {
+        serverName = "[EU] ALL-MODS EVENT | SD+SuperMod+ICM+WZ | Voting";
+        mods = sd.workshopIds // sm.workshopIds // icm.workshopIds
+            // wz.workshopIds // ch.workshopIds
+            // ml.workshopIds // dw.workshopIds;
+        modLoaderMods = [ dw.modLoaderPath ];
+        layerRotation = sd.layers ++ icm.layers ++ sm.layers
+            ++ ch.layers ++ [ "Yehorivka_RAAS_v1" ];
+        gamePort = 7837;  queryPort = 27215;
+        rconPort = 21164; beaconPort = 15050;
+        rconPassword = "CHANGEME-openssl-rand-hex-24";
+        motd = "ALL-MODS EVENT SERVER. Vote your layer. Expect the unexpected.";
+      };
+    };
+
+    autoUpdate = true;        # one nightly cycle updates the SHARED install,
+    autoUpdateTime = "05:30"; # then restarts every instance in sync
+  };
+
+  # ---- SquadJS: admin tools, Discord bots, broadcasts ---------------------
+  services.squadjs = {
+    enable = true;
+    gameGroup = "squadsrv";   # must match services.squad-servers.group
+
+    instances.weather = {
+      enable = false;   # follows the game instance
+      gameService = "squad-weather";
+      queryPort = 27195;
+      rconPort = 21144;
+      rconPassword = "CHANGEME-openssl-rand-hex-24";   # MUST match the instance's rconPassword
+      logDir = "/var/lib/squad/instances/weather/persist/Saved/Logs";
+      adminsFile = "/var/lib/squad/instances/weather/farm/SquadGame/ServerConfig/Admins.cfg";
+
+      # Rotating in-game messages — your server "description"
+      broadcasts = [
+        "Welcome to [EU] Vanilla+ | Dynamic Weather — vanilla Squad, living skies."
+        "Rules: play the objective, comms in squad, no toxicity."
+        "Join our Discord: discord.gg/YOURINVITE"
+      ];
+      broadcastIntervalMs = 300000;
+
+      # Fill these in after creating the Discord bot (see squadjs.nix header
+      # for the 5-step walkthrough). Leave token null to run without Discord.
+      discord = {
+        token = null;                  # "MTIz...your-bot-token"
+        chatChannelId  = null;         # "123456789012345678"
+        adminChannelId = null;
+        rconChannelId  = null;         # lock this channel to admins!
+      };
+    };
+  };
+
+  services.squadjs.instances.event = {
+    gameService = "squad-event";
+    queryPort = 27215;
+    rconPort = 21164;
+    rconPassword = "CHANGEME-openssl-rand-hex-24";
+    logDir = "/var/lib/squad/instances/event/persist/Saved/Logs";
+    adminsFile = "/var/lib/squad/instances/event/farm/SquadGame/ServerConfig/Admins.cfg";
+
+    # Map voting across ALL the mods needs a layer list that knows them:
+    # push merged-layers.old.json (generated, 854 layers: vanilla+SD+SU+ICM)
+    # to a public gist/repo and paste its RAW url here. Until set, MapVote
+    # only knows vanilla layers.
+    # layerListUrl = "https://raw.githubusercontent.com/YOU/squad-layers/main/merged-layers.old.json";
+
+    welcomeMessage = "Welcome to " " server! Vote layers with !vote. Join the community: discord.gg/YOURINVITE";
+
+    broadcasts = [
+      "ALL-MODS EVENT: Steel Division, SuperMod, ICM, Warzone, Chornivsk + dynamic weather."
+      "Vote for the next layer with !vote — every mod is on the menu."
+      "Join our Discord for events, admin help and updates: discord.gg/YOURINVITE"
+    ];
+
+    discord = {
+      token = null;
+      chatChannelId  = null;
+      adminChannelId = null;
+      rconChannelId  = null;
+    };
+  };
+
+  environment.systemPackages = with pkgs; [ htop tmux ];
+  zramSwap.enable = true;
+}
