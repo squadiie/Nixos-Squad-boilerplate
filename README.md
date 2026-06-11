@@ -41,7 +41,7 @@ services.squad-servers.instances.my-server = {
   Community Ban List warnings, Discord chat/admin/killfeed/RCON bridges,
   per-player welcome popups, rotating broadcasts, and custom knife-kill /
   teamkill / helicopter-shootdown announcements
-- **Hard-won correctness baked in** — see [Gotchas](#gotchas-this-repo-already-fixes)
+- **Hard-won correctness baked in**
 
 ## Quick start
 
@@ -84,7 +84,7 @@ inputs.squad-nixos.nixosModules.default
 
 A `prepare` unit rebuilds each farm on every service start: symlinks the
 shared install, **materializes the launcher + `Binaries/Linux` as real
-files/hardlinks** (see gotcha #1), links enabled mods into `Plugins/Mods`,
+files/hardlinks**, links enabled mods into `Plugins/Mods`,
 and generates `Server.cfg` / `Rcon.cfg` / `Admins.cfg` / rotations / MOTD
 from your Nix options.
 
@@ -92,29 +92,6 @@ SquadJS (`services.squadjs.instances.<name>`) runs one process per game
 server: clones/updates SquadJS + third-party plugins at service start,
 generates `config.json` from Nix options, reads game logs directly from the
 instance's persist dir, and talks RCON over loopback.
-
-## Gotchas this repo already fixes
-
-Learned the hard way so you don't have to:
-
-1. **Symlinked server binary = config silently ignored.** Unreal resolves
-   its project directory from the binary's *real* path (`/proc/self/exe`).
-   A symlinked `SquadGameServer` makes the engine read `ServerConfig` from
-   the shared install (i.e. defaults: no RCON, default map, **no server
-   browser advertising**). The farm materializes the binary as a hardlink.
-2. **The in-game browser pings the beacon port — UDP *and TCP*.** Most
-   guides open UDP only; the server then never lists. Full wiki port matrix
-   is applied per instance.
-3. **`Motd.cfg` is case-sensitive on Linux** (`MOTD.cfg` is ignored). Both
-   spellings are written.
-4. **SteamCMD times out on multi-GB Workshop items** by design; downloads
-   resume, so the module retries each item up to 15× and verifies success.
-5. **SteamCMD sometimes caches stale workshop state.** If a mod update
-   doesn't take: `rm .../steamapps/workshop/appworkshop_393380.acf` and
-   re-run `squad-fleet-update`.
-6. **Mod updates mismatch-kick updated clients** until the server updates —
-   hence the nightly timer, plus `systemctl start squad-fleet-update` for
-   mid-day emergencies.
 
 ## Map voting with modded layers
 
